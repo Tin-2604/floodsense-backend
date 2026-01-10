@@ -1,0 +1,27 @@
+{
+  "name": "floodsense-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "FloodSense Backend API",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "@payos/node": "^2.0.4",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.1.1",
+    "multer": "^2.0.2"
+  }
+}
