@@ -14,7 +14,7 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
     const orderData = {
       orderCode: Date.now(), // Unique order code
       amount: amount,
-      description: description?.substring(0, 25) || `Nap tien FloodSense`,
+      description: `USER_${userId}_${description?.substring(0, 15) || 'Nap tien'}`,
       cancelUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/cancel`,
       returnUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/success`,
       buyerEmail: req.user.email,
@@ -52,10 +52,25 @@ router.post('/webhook', async (req, res) => {
     if (paymentData.status === 'PAID') {
       const orderCode = paymentData.orderCode;
       const amount = paymentData.amount;
+      const description = paymentData.description;
       const buyerEmail = paymentData.buyerEmail;
       
-      // Tìm user qua email
-      const user = await User.findOne({ email: buyerEmail });
+      // Parse userId từ description
+      let userId = null;
+      if (description && description.startsWith('USER_')) {
+        userId = description.split('_')[1];
+      }
+      
+      // Ưu tiên tìm user qua userId
+      let user = null;
+      if (userId) {
+        user = await User.findById(userId);
+      }
+      
+      // Nếu không tìm thấy qua userId, thử qua email
+      if (!user && buyerEmail) {
+        user = await User.findOne({ email: buyerEmail });
+      }
       
       if (user) {
         // Xác định số ngày gia hạn dựa trên số tiền thực nhận
