@@ -40,6 +40,10 @@ const userSchema = new mongoose.Schema({
   mapAccessGrantedAt: {
     type: Date,
   },
+  mapAccessExpiresAt: {
+    type: Date,
+    default: Date.now,
+  },
   img: {
     type: String,
   },

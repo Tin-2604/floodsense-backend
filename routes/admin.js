@@ -159,7 +159,7 @@ router.post('/users/:id/grant-map-access', isAdmin, async (req, res) => {
     // Set expiration date: 30 days from now
     const expirationDate = new Date();
     expirationDate.setDate(expirationDate.getDate() + 30);
-    user.mapAccessExpiry = expirationDate;
+    user.mapAccessExpiresAt = expirationDate;
 
     await user.save();
 
@@ -175,7 +175,7 @@ router.post('/users/:id/grant-map-access', isAdmin, async (req, res) => {
         hasMapAccess: user.hasMapAccess,
         upgradeStatus: user.upgradeStatus,
         mapAccessGrantedAt: user.mapAccessGrantedAt,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {
@@ -205,7 +205,7 @@ router.post('/users/:id/revoke-map-access', isAdmin, async (req, res) => {
 
     user.hasMapAccess = false;
     user.upgradeStatus = 'none';
-    user.mapAccessExpiry = null;
+    user.mapAccessExpiresAt = null;
 
     await user.save();
 
@@ -220,7 +220,7 @@ router.post('/users/:id/revoke-map-access', isAdmin, async (req, res) => {
         email: user.email,
         hasMapAccess: user.hasMapAccess,
         upgradeStatus: user.upgradeStatus,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {

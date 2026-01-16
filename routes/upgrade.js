@@ -55,9 +55,9 @@ router.get('/status', authenticate, async (req, res) => {
 
     // Check if access has expired
     let hasAccess = user.hasMapAccess;
-    if (hasAccess && user.mapAccessExpiry) {
+    if (hasAccess && user.mapAccessExpiresAt) {
       const now = new Date();
-      if (now > user.mapAccessExpiry) {
+      if (now > user.mapAccessExpiresAt) {
         // Access expired, revoke it
         user.hasMapAccess = false;
         user.upgradeStatus = 'none';
@@ -72,7 +72,7 @@ router.get('/status', authenticate, async (req, res) => {
       hasMapAccess: hasAccess,
       upgradeRequestedAt: user.upgradeRequestedAt,
       mapAccessGrantedAt: user.mapAccessGrantedAt,
-      mapAccessExpiry: user.mapAccessExpiry,
+      mapAccessExpiresAt: user.mapAccessExpiresAt,
     });
   } catch (error) {
     console.error('Get upgrade status error:', error);

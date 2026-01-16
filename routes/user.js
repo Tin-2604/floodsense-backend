@@ -64,7 +64,7 @@ router.put('/profile', authenticate, async (req, res) => {
         hasMapAccess: user.hasMapAccess,
         upgradeStatus: user.upgradeStatus,
         mapAccessGrantedAt: user.mapAccessGrantedAt,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {
@@ -110,7 +110,7 @@ router.post('/avatar', authenticate, upload.single('avatar'), async (req, res) =
         hasMapAccess: user.hasMapAccess,
         upgradeStatus: user.upgradeStatus,
         mapAccessGrantedAt: user.mapAccessGrantedAt,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {

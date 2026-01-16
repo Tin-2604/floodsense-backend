@@ -142,14 +142,14 @@ router.post('/signin', async (req, res) => {
       user.upgradeStatus = 'approved';
       user.mapAccessGrantedAt = new Date();
       // Admin access never expires
-      user.mapAccessExpiry = null;
+      user.mapAccessExpiresAt = null;
       await user.save();
     }
     
     // Check if user's map access has expired
-    if (user.hasMapAccess && user.mapAccessExpiry) {
+    if (user.hasMapAccess && user.mapAccessExpiresAt) {
       const now = new Date();
-      if (now > user.mapAccessExpiry) {
+      if (now > user.mapAccessExpiresAt) {
         // Access expired, revoke it
         user.hasMapAccess = false;
         user.upgradeStatus = 'none';
@@ -177,7 +177,7 @@ router.post('/signin', async (req, res) => {
         hasMapAccess: user.role === 'admin' ? true : user.hasMapAccess,
         upgradeStatus: user.role === 'admin' ? 'approved' : user.upgradeStatus,
         mapAccessGrantedAt: user.mapAccessGrantedAt,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {
@@ -265,7 +265,7 @@ router.post('/google', async (req, res) => {
         hasMapAccess: user.role === 'admin' ? true : user.hasMapAccess,
         upgradeStatus: user.role === 'admin' ? 'approved' : user.upgradeStatus,
         mapAccessGrantedAt: user.mapAccessGrantedAt,
-        mapAccessExpiry: user.mapAccessExpiry,
+        mapAccessExpiresAt: user.mapAccessExpiresAt,
       },
     });
   } catch (error) {
