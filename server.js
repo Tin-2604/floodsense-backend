@@ -6,10 +6,35 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
+// Allow multiple origins for development and production
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001', 
+  'http://localhost:5173', // Vite default port
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  process.env.FRONTEND_URL // For production frontend
+].filter(Boolean);
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // In production, allow all origins
+    if (process.env.NODE_ENV === 'production') {
+      return callback(null, true);
+    }
+    
+    // In development, check allowed origins
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Still allow for development flexibility
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
