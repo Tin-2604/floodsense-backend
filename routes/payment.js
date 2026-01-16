@@ -10,7 +10,17 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
     const { amount, description } = req.body;
     const userId = req.user.userId || req.user.id;
 
-    console.log('Creating payment link for user:', userId, req.user.email);
+    console.log('====== CREATE PAYMENT LINK ======');
+    console.log('User info:', { userId, email: req.user.email, name: req.user.name });
+    console.log('Request body:', { amount, description });
+
+    if (!userId) {
+      console.error('❌ UserId is undefined!');
+      return res.status(400).json({
+        success: false,
+        message: 'User ID not found in token'
+      });
+    }
 
     // Tạo order data theo PayOS API
     const orderData = {
@@ -19,8 +29,8 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
       description: `USER_${userId}_${description?.substring(0, 15) || 'Nap tien'}`,
       cancelUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/cancel`,
       returnUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/success`,
-      buyerEmail: req.user.email,
-      buyerName: req.user.name
+      buyerEmail: req.user.email || 'no-email@example.com',
+      buyerName: req.user.name || 'User'
     };
 
     console.log('Order data:', orderData);
@@ -28,12 +38,15 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
     // Tạo payment link
     const paymentLinkResponse = await payos.paymentRequests.create(orderData);
 
+    console.log('✅ Payment link created:', paymentLinkResponse.checkoutUrl);
+
     res.json({
       success: true,
       data: paymentLinkResponse
     });
   } catch (error) {
-    console.error('Error creating payment link:', error);
+    console.error('❌ Error creating payment link:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error creating payment link',
