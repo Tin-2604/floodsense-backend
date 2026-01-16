@@ -58,13 +58,24 @@ router.post('/webhook', async (req, res) => {
       // Parse userId từ description
       let userId = null;
       if (description && description.startsWith('USER_')) {
-        userId = description.split('_')[1];
+        const parts = description.split('_');
+        if (parts.length > 1) {
+          const potentialId = parts[1];
+          // Kiểm tra xem có phải là valid ObjectId không (24 hex characters)
+          if (potentialId && /^[0-9a-fA-F]{24}$/.test(potentialId)) {
+            userId = potentialId;
+          }
+        }
       }
       
       // Ưu tiên tìm user qua userId
       let user = null;
       if (userId) {
-        user = await User.findById(userId);
+        try {
+          user = await User.findById(userId);
+        } catch (err) {
+          console.log('Invalid userId format:', userId);
+        }
       }
       
       // Nếu không tìm thấy qua userId, thử qua email
@@ -75,16 +86,22 @@ router.post('/webhook', async (req, res) => {
       if (user) {
         // Xác định số ngày gia hạn dựa trên số tiền thực nhận
         let daysToAdd = 0;
+        let packageName = '';
         if (amount >= 60000) {
           daysToAdd = 180; // 6 tháng
+          packageName = 'Gói 6 tháng';
         } else if (amount >= 30000) {
           daysToAdd = 90; // 3 tháng
+          packageName = 'Gói 3 tháng';
         } else if (amount >= 10000) {
           daysToAdd = 30; // 1 tháng
+          packageName = 'Gói 1 tháng';
         } else if (amount >= 2000) {
           daysToAdd = 2; // 2 ngày
+          packageName = 'Gói 2 ngày';
         } else if (amount >= 1000) {
           daysToAdd = 1; // 1 ngày
+          packageName = 'Gói 1 ngày';
         } else {
           // Số tiền không đủ, không gia hạn
           console.log(`Payment received but amount insufficient: ${amount} for user ${user._id}`);
@@ -101,6 +118,9 @@ router.post('/webhook', async (req, res) => {
         // Cộng thêm ngày
         newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
 
+        // Format ngày tháng cho description
+        const expiryFormatted = newExpiryDate.toLocaleDateString('vi-VN');
+
         // Cập nhật user
         await User.findByIdAndUpdate(
           user._id,
@@ -109,7 +129,8 @@ router.post('/webhook', async (req, res) => {
             $set: { 
               hasMapAccess: true,
               upgradeStatus: 'approved',
-              mapAccessExpiry: newExpiryDate
+              mapAccessExpiry: newExpiryDate,
+              mapAccessGrantedAt: new Date()
             },
             $push: {
               transactions: {
@@ -118,13 +139,13 @@ router.post('/webhook', async (req, res) => {
                 orderCode: orderCode.toString(),
                 status: 'completed',
                 createdAt: new Date(),
-                description: `Gia hạn ${daysToAdd} ngày`
+                description: `${packageName} - Gia hạn đến ${expiryFormatted}`
               }
             }
           }
         );
 
-        console.log(`Extended map access for user ${user._id} by ${daysToAdd} days until ${newExpiryDate}`);
+        console.log(`✅ Auto-upgraded: ${user.email} - ${packageName} (${daysToAdd} days) - Expires: ${expiryFormatted}`);
       }
     }
 
