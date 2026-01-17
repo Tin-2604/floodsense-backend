@@ -42,17 +42,15 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
 router.post('/webhook', async (req, res) => {
   try {
     const webhookData = req.body;
-    
-    console.log('Webhook received:', webhookData);
+    console.log('Webhook received:', JSON.stringify(webhookData, null, 2));
 
     // PayOS webhook structure: {data: {orderCode, amount, status, ...}, ...}
     const paymentData = webhookData.data || webhookData;
     
-    // Xử lý thanh toán thành công
     if (paymentData.status === 'PAID') {
       const orderCode = paymentData.orderCode;
       const amount = paymentData.amount;
-      const description = paymentData.description;
+      const description = paymentData.description || '';
       const buyerEmail = paymentData.buyerEmail;
       
       // Parse userId từ description
@@ -61,70 +59,82 @@ router.post('/webhook', async (req, res) => {
         userId = description.split('_')[1];
       }
       
-      // Ưu tiên tìm user qua userId
+      // Tìm user
       let user = null;
       if (userId) {
         user = await User.findById(userId);
       }
       
-      // Nếu không tìm thấy qua userId, thử qua email
       if (!user && buyerEmail) {
         user = await User.findOne({ email: buyerEmail });
       }
       
-      if (user) {
-        // Xác định số ngày gia hạn dựa trên số tiền thực nhận
-        let daysToAdd = 0;
-        if (amount >= 60000) {
-          daysToAdd = 180; // 6 tháng
-        } else if (amount >= 30000) {
-          daysToAdd = 90; // 3 tháng
-        } else if (amount >= 10000) {
-          daysToAdd = 30; // 1 tháng
-        } else if (amount >= 2000) {
-          daysToAdd = 2; // 2 ngày
-        } else if (amount >= 1000) {
-          daysToAdd = 1; // 1 ngày
-        } else {
-          // Số tiền không đủ, không gia hạn
-          console.log(`Payment received but amount insufficient: ${amount} for user ${user._id}`);
-          return res.json({ success: true });
-        }
+      if (!user) {
+        console.log('User not found for payment:', { orderCode, buyerEmail });
+        return res.json({ success: true });
+      }
 
-        let newExpiryDate = new Date();
-        
-        // Nếu đã có expiry date, gia hạn từ đó
-        if (user.mapAccessExpiry && user.mapAccessExpiry > new Date()) {
-          newExpiryDate = new Date(user.mapAccessExpiry);
-        }
-        
-        // Cộng thêm ngày
-        newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
+      // Tạo transaction
+      const transaction = {
+        type: 'deposit',
+        amount: amount,
+        orderCode: orderCode.toString(),
+        status: 'completed',
+        createdAt: new Date(),
+        description: 'Nạp tiền vào tài khoản'
+      };
 
-        // Cập nhật user
+      // Nếu là nạp tiền thông thường
+      if (description.includes('Nap tien') || description.includes('Nạp tiền')) {
         await User.findByIdAndUpdate(
           user._id,
           { 
             $inc: { money: amount },
+            $push: { transactions: transaction }
+          }
+        );
+        console.log(`Added ${amount} to user ${user._id}'s balance`);
+        return res.json({ success: true });
+      }
+      
+      // Nếu là thanh toán gói dịch vụ
+      let daysToAdd = 0;
+      if (amount >= 60000) {
+        daysToAdd = 180; // 6 tháng
+      } else if (amount >= 30000) {
+        daysToAdd = 90; // 3 tháng
+      } else if (amount >= 10000) {
+        daysToAdd = 30; // 1 tháng
+      } else if (amount >= 2000) {
+        daysToAdd = 2; // 2 ngày
+      } else if (amount >= 1000) {
+        daysToAdd = 1; // 1 ngày
+      }
+
+      if (daysToAdd > 0) {
+        let newExpiryDate = new Date();
+        if (user.mapAccessExpiry && new Date(user.mapAccessExpiry) > new Date()) {
+          newExpiryDate = new Date(user.mapAccessExpiry);
+        }
+        newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
+
+        transaction.type = 'purchase';
+        transaction.description = `Gia hạn ${daysToAdd} ngày`;
+
+        await User.findByIdAndUpdate(
+          user._id,
+          { 
             $set: { 
               hasMapAccess: true,
               upgradeStatus: 'approved',
               mapAccessExpiry: newExpiryDate
             },
-            $push: {
-              transactions: {
-                type: 'purchase',
-                amount: amount,
-                orderCode: orderCode.toString(),
-                status: 'completed',
-                createdAt: new Date(),
-                description: `Gia hạn ${daysToAdd} ngày`
-              }
-            }
+            $push: { transactions: transaction }
           }
         );
-
         console.log(`Extended map access for user ${user._id} by ${daysToAdd} days until ${newExpiryDate}`);
+      } else {
+        console.log(`Payment received but amount (${amount}) is insufficient for any package`);
       }
     }
 
