@@ -8,7 +8,7 @@ const { authenticate } = require('../middleware/auth');
 router.post('/create-payment-link', authenticate, async (req, res) => {
   try {
     const { amount, description } = req.body;
-    const userId = req.user.id;
+    const userId = req.user.userId || req.user.id;
 
     // Tạo order data theo PayOS API
     const orderData = {
@@ -42,15 +42,19 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
 router.post('/webhook', async (req, res) => {
   try {
     const webhookData = req.body;
-    console.log('Webhook received:', JSON.stringify(webhookData, null, 2));
+    
+    console.log('=== WEBHOOK RECEIVED ===');
+    console.log('Full webhook data:', JSON.stringify(webhookData, null, 2));
+    console.log('Request headers:', req.headers);
 
     // PayOS webhook structure: {data: {orderCode, amount, status, ...}, ...}
     const paymentData = webhookData.data || webhookData;
     
+    // Xử lý thanh toán thành công
     if (paymentData.status === 'PAID') {
       const orderCode = paymentData.orderCode;
       const amount = paymentData.amount;
-      const description = paymentData.description || '';
+      const description = paymentData.description;
       const buyerEmail = paymentData.buyerEmail;
       
       // Parse userId từ description
@@ -59,83 +63,77 @@ router.post('/webhook', async (req, res) => {
         userId = description.split('_')[1];
       }
       
-      // Tìm user
+      // Ưu tiên tìm user qua userId
       let user = null;
       if (userId) {
         user = await User.findById(userId);
       }
       
+      // Nếu không tìm thấy qua userId, thử qua email
       if (!user && buyerEmail) {
         user = await User.findOne({ email: buyerEmail });
       }
       
-      if (!user) {
-        console.log('User not found for payment:', { orderCode, buyerEmail });
-        return res.json({ success: true });
-      }
+      if (user) {
+        console.log(`✅ Found user: ${user._id} (${user.email})`);
+        
+        // Xác định số ngày gia hạn dựa trên số tiền thực nhận
+        let daysToAdd = 0;
+        if (amount >= 60000) {
+          daysToAdd = 180; // 6 tháng
+        } else if (amount >= 30000) {
+          daysToAdd = 90; // 3 tháng
+        } else if (amount >= 10000) {
+          daysToAdd = 30; // 1 tháng
+        } else if (amount >= 2000) {
+          daysToAdd = 2; // 2 ngày
+        } else if (amount >= 1000) {
+          daysToAdd = 1; // 1 ngày
+        } else {
+          // Số tiền không đủ, không gia hạn
+          console.log(`Payment received but amount insufficient: ${amount} for user ${user._id}`);
+          return res.json({ success: true });
+        }
 
-      // Tạo transaction
-      const transaction = {
-        type: 'deposit',
-        amount: amount,
-        orderCode: orderCode.toString(),
-        status: 'completed',
-        createdAt: new Date(),
-        description: 'Nạp tiền vào tài khoản'
-      };
+        let newExpiryDate = new Date();
+        
+        // Nếu đã có expiry date, gia hạn từ đó
+        if (user.mapAccessExpiry && user.mapAccessExpiry > new Date()) {
+          newExpiryDate = new Date(user.mapAccessExpiry);
+        }
+        
+        // Cộng thêm ngày
+        newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
 
-      // Nếu là nạp tiền thông thường
-      if (description.includes('Nap tien') || description.includes('Nạp tiền')) {
+        // Cập nhật user
         await User.findByIdAndUpdate(
           user._id,
           { 
             $inc: { money: amount },
-            $push: { transactions: transaction }
-          }
-        );
-        console.log(`Added ${amount} to user ${user._id}'s balance`);
-        return res.json({ success: true });
-      }
-      
-      // Nếu là thanh toán gói dịch vụ
-      let daysToAdd = 0;
-      if (amount >= 60000) {
-        daysToAdd = 180; // 6 tháng
-      } else if (amount >= 30000) {
-        daysToAdd = 90; // 3 tháng
-      } else if (amount >= 10000) {
-        daysToAdd = 30; // 1 tháng
-      } else if (amount >= 2000) {
-        daysToAdd = 2; // 2 ngày
-      } else if (amount >= 1000) {
-        daysToAdd = 1; // 1 ngày
-      }
-
-      if (daysToAdd > 0) {
-        let newExpiryDate = new Date();
-        if (user.mapAccessExpiry && new Date(user.mapAccessExpiry) > new Date()) {
-          newExpiryDate = new Date(user.mapAccessExpiry);
-        }
-        newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
-
-        transaction.type = 'purchase';
-        transaction.description = `Gia hạn ${daysToAdd} ngày`;
-
-        await User.findByIdAndUpdate(
-          user._id,
-          { 
             $set: { 
               hasMapAccess: true,
               upgradeStatus: 'approved',
               mapAccessExpiry: newExpiryDate
             },
-            $push: { transactions: transaction }
+            $push: {
+              transactions: {
+                type: 'purchase',
+                amount: amount,
+                orderCode: orderCode.toString(),
+                status: 'completed',
+                createdAt: new Date(),
+                description: `Gia hạn ${daysToAdd} ngày`
+              }
+            }
           }
         );
-        console.log(`Extended map access for user ${user._id} by ${daysToAdd} days until ${newExpiryDate}`);
+
+        console.log(`✅ Extended map access for user ${user._id} by ${daysToAdd} days until ${newExpiryDate}`);
       } else {
-        console.log(`Payment received but amount (${amount}) is insufficient for any package`);
+        console.log(`❌ User not found! userId: ${userId}, buyerEmail: ${buyerEmail}`);
       }
+    } else {
+      console.log(`⚠️ Payment status is not PAID: ${paymentData.status}`);
     }
 
     res.json({ success: true });
@@ -144,6 +142,92 @@ router.post('/webhook', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Webhook processing error',
+      error: error.message
+    });
+  }
+});
+
+// Test endpoint để kiểm tra webhook manually (CHỈ CHO DEVELOPMENT)
+router.post('/test-webhook', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ success: false, message: 'Not allowed in production' });
+  }
+
+  try {
+    const { userId, amount } = req.body;
+    
+    if (!userId || !amount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'userId and amount are required' 
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Xác định số ngày gia hạn
+    let daysToAdd = 0;
+    if (amount >= 60000) {
+      daysToAdd = 180;
+    } else if (amount >= 30000) {
+      daysToAdd = 90;
+    } else if (amount >= 10000) {
+      daysToAdd = 30;
+    } else if (amount >= 2000) {
+      daysToAdd = 2;
+    } else if (amount >= 1000) {
+      daysToAdd = 1;
+    }
+
+    let newExpiryDate = new Date();
+    if (user.mapAccessExpiry && user.mapAccessExpiry > new Date()) {
+      newExpiryDate = new Date(user.mapAccessExpiry);
+    }
+    newExpiryDate.setDate(newExpiryDate.getDate() + daysToAdd);
+
+    await User.findByIdAndUpdate(
+      user._id,
+      { 
+        $inc: { money: amount },
+        $set: { 
+          hasMapAccess: true,
+          upgradeStatus: 'approved',
+          mapAccessExpiry: newExpiryDate
+        },
+        $push: {
+          transactions: {
+            type: 'purchase',
+            amount: amount,
+            orderCode: 'TEST_' + Date.now(),
+            status: 'completed',
+            createdAt: new Date(),
+            description: `Test - Gia hạn ${daysToAdd} ngày`
+          }
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `Upgraded user ${user.email} for ${daysToAdd} days until ${newExpiryDate}`,
+      data: {
+        userId: user._id,
+        email: user.email,
+        daysAdded: daysToAdd,
+        expiryDate: newExpiryDate
+      }
+    });
+  } catch (error) {
+    console.error('Test webhook error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing test webhook',
       error: error.message
     });
   }
@@ -174,10 +258,76 @@ router.get('/check-status/:orderCode', authenticate, async (req, res) => {
 // Lấy thông tin user (bao gồm số tiền)
 router.get('/user-info', authenticate, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const userId = req.user.userId || req.user.id;
+    const user = await User.findById(userId).select('-password');
+    
+    // Tính toán số ngày còn lại nếu có expiry date
+    let daysRemaining = null;
+    if (user.mapAccessExpiry) {
+      const now = new Date();
+      const expiry = new Date(user.mapAccessExpiry);
+      const diffTime = expiry - now;
+      daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+    
     res.json({
       success: true,
-      data: user
+      data: {
+        ...user.toObject(),
+        daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+        isExpired: daysRemaining !== null && daysRemaining <= 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user info',
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint - lấy thông tin user by email (CHỈ CHO DEVELOPMENT)
+router.get('/debug/user/:email', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ success: false, message: 'Not allowed in production' });
+  }
+
+  try {
+    const user = await User.findOne({ email: req.params.email }).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Tính toán số ngày còn lại
+    let daysRemaining = null;
+    if (user.mapAccessExpiry) {
+      const now = new Date();
+      const expiry = new Date(user.mapAccessExpiry);
+      const diffTime = expiry - now;
+      daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        hasMapAccess: user.hasMapAccess,
+        upgradeStatus: user.upgradeStatus,
+        mapAccessExpiry: user.mapAccessExpiry,
+        daysRemaining: daysRemaining,
+        isExpired: daysRemaining !== null && daysRemaining <= 0,
+        money: user.money,
+        transactionCount: user.transactions?.length || 0,
+        recentTransactions: user.transactions?.slice(-5) || []
+      }
     });
   } catch (error) {
     res.status(500).json({
