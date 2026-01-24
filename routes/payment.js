@@ -10,11 +10,16 @@ router.post('/create-payment-link', authenticate, async (req, res) => {
     const { amount, description } = req.body;
     const userId = req.user.userId || req.user.id;
 
+    // Tạo description ngắn (max 25 ký tự)
+    const shortUserId = userId.toString().slice(-6); // Lấy 6 ký tự cuối
+    const shortDesc = description?.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8) || 'NAP';
+    const paymentDesc = `${shortUserId}_${shortDesc}`; // Max ~15 ký tự
+
     // Tạo order data theo PayOS API
     const orderData = {
       orderCode: Date.now(), // Unique order code
       amount: amount,
-      description: `USER_${userId}_${description?.substring(0, 15) || 'Nap tien'}`,
+      description: paymentDesc,
       cancelUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/cancel`,
       returnUrl: `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/success`,
       buyerEmail: req.user.email,
@@ -57,22 +62,8 @@ router.post('/webhook', async (req, res) => {
       const description = paymentData.description;
       const buyerEmail = paymentData.buyerEmail;
       
-      // Parse userId từ description
-      let userId = null;
-      if (description && description.startsWith('USER_')) {
-        userId = description.split('_')[1];
-      }
-      
-      // Ưu tiên tìm user qua userId
-      let user = null;
-      if (userId) {
-        user = await User.findById(userId);
-      }
-      
-      // Nếu không tìm thấy qua userId, thử qua email
-      if (!user && buyerEmail) {
-        user = await User.findOne({ email: buyerEmail });
-      }
+      // Tìm user qua email (đơn giản và đáng tin cậy nhất)
+      const user = await User.findOne({ email: buyerEmail });
       
       if (user) {
         console.log(`✅ Found user: ${user._id} (${user.email})`);
